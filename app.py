@@ -59,20 +59,23 @@ def home():
 @app.route('/add-item', methods=['POST'])
 def add_item_batch():
     try:
-        # Parse the JSON payload (expected to be a list of items)
+        # Log raw request data
+        app.logger.debug(f"Raw request data: {request.data.decode('utf-8')}")
+        app.logger.debug(f"Request headers: {request.headers}")
+
+        # Parse JSON body
         batch = request.get_json()
-        
+        app.logger.debug(f"Parsed batch: {batch}")
+
         if not isinstance(batch, list):
             app.logger.error("Invalid input data: Expected a list of items.")
             return jsonify({"error": "Input must be a list of items."}), 400
 
-        # Validate each item in the batch
         for item in batch:
             if not all(key in item for key in ["id", "partitionKey", "name"]):
                 app.logger.error("Invalid item format. 'id', 'partitionKey', and 'name' are required.")
                 return jsonify({"error": "Each item must have 'id', 'partitionKey', and 'name'"}), 400
 
-            # Insert each item into Cosmos DB
             container.upsert_item(item)
             app.logger.info(f"Item added: {item}")
 
