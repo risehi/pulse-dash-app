@@ -57,29 +57,30 @@ def home():
 
 
 @app.route('/add-item', methods=['POST'])
-def add_item():
+def add_item_batch():
     try:
-        # Parse JSON data from the request body
-        data = request.get_json()
+        # Parse the JSON payload (expected to be a list of items)
+        batch = request.get_json()
+        
+        if not isinstance(batch, list):
+            app.logger.error("Invalid input data: Expected a list of items.")
+            return jsonify({"error": "Input must be a list of items."}), 400
 
-        # Validate input
-        if not all(key in data for key in ["id", "partitionKey", "name"]):
-            app.logger.error("Invalid input data. 'id', 'partitionKey', and 'name' are required.")
-            return jsonify({"error": "Missing required fields: 'id', 'partitionKey', 'name'"}), 400
+        # Validate each item in the batch
+        for item in batch:
+            if not all(key in item for key in ["id", "partitionKey", "name"]):
+                app.logger.error("Invalid item format. 'id', 'partitionKey', and 'name' are required.")
+                return jsonify({"error": "Each item must have 'id', 'partitionKey', and 'name'"}), 400
 
-        # Create an item with the provided data
-        item = {
-            "id": data["id"],
-            "partitionKey": data["partitionKey"],
-            "name": data["name"]
-        }
-        response = container.upsert_item(item)  # Insert or update the item in the container
-        app.logger.info(f"Item added to Cosmos DB: {response}")
-        return jsonify({"message": "Item added to Cosmos DB!", "item": item}), 200
+            # Insert each item into Cosmos DB
+            container.upsert_item(item)
+            app.logger.info(f"Item added: {item}")
+
+        return jsonify({"message": f"Batch of {len(batch)} items added to Cosmos DB!"}), 200
 
     except Exception as e:
-        app.logger.error(f"Error adding item: {e}")
-        return jsonify({"error": "Failed to add item"}), 500
+        app.logger.error(f"Error adding batch: {e}")
+        return jsonify({"error": "Failed to add batch"}), 500
 
 
 @app.route('/get-items', methods=['GET'])
