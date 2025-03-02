@@ -47,8 +47,8 @@ except Exception as e:
 @app.route('/')
 def home():
     try:
-        # List all databases to test the connection
-        databases = [db.id for db in client.list_databases()]
+        # Use db['id'] to access the database IDs
+        databases = [db['id'] for db in client.list_databases()]
         app.logger.info(f"Databases retrieved: {databases}")
         return jsonify({"message": "Connected to Cosmos DB!", "databases": databases})
     except Exception as e:
