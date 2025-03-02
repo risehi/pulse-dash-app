@@ -1,6 +1,6 @@
 import os
 import logging
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from azure.cosmos import CosmosClient, PartitionKey
 
 app = Flask(__name__)
@@ -55,17 +55,32 @@ def home():
         app.logger.error(f"Error fetching databases: {e}")
         return jsonify({"error": "Failed to fetch databases"}), 500
 
+
 @app.route('/add-item', methods=['POST'])
 def add_item():
     try:
-        # Add a test item to the container
-        item = {"id": "1", "partitionKey": "testPartition", "name": "Sample Item"}
-        response = container.upsert_item(item)
+        # Parse JSON data from the request body
+        data = request.get_json()
+
+        # Validate input
+        if not all(key in data for key in ["id", "partitionKey", "name"]):
+            app.logger.error("Invalid input data. 'id', 'partitionKey', and 'name' are required.")
+            return jsonify({"error": "Missing required fields: 'id', 'partitionKey', 'name'"}), 400
+
+        # Create an item with the provided data
+        item = {
+            "id": data["id"],
+            "partitionKey": data["partitionKey"],
+            "name": data["name"]
+        }
+        response = container.upsert_item(item)  # Insert or update the item in the container
         app.logger.info(f"Item added to Cosmos DB: {response}")
-        return jsonify({"message": "Item added to Cosmos DB!", "item": item})
+        return jsonify({"message": "Item added to Cosmos DB!", "item": item}), 200
+
     except Exception as e:
         app.logger.error(f"Error adding item: {e}")
         return jsonify({"error": "Failed to add item"}), 500
+
 
 @app.route('/get-items', methods=['GET'])
 def get_items():
