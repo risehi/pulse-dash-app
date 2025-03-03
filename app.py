@@ -27,8 +27,8 @@ except Exception as e:
     app.logger.error(f"Error initializing Cosmos DB client: {e}")
 
 # Database and container names (replace with your actual names)
-DATABASE_NAME = 'TestDatabase'
-CONTAINER_NAME = 'TestContainer'
+DATABASE_NAME = 'GrowData'
+CONTAINER_NAME = 'Readings'
 
 # Ensure the database and container exist
 try:
