@@ -92,18 +92,27 @@ def get_items():
 # Dash Data Preparation
 def get_time_series_data():
     try:
+        # Fetch items from Cosmos DB
         items = list(container.read_all_items())
-        app.logger.debug(f"Fetched {len(items)} items for plotting")
+        
+        # Convert to DataFrame
         df = pd.DataFrame(items)
-        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')  # Convert milliseconds to datetime
-        df = pd.concat([
-            df.drop(['sensorGroups'], axis=1),
-            pd.json_normalize(df['sensorGroups'])
-        ], axis=1)
+        
+        # Convert timestamp to datetime
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        
+        # Flatten nested 'sensorGroups'
+        sensors_df = pd.json_normalize(df['sensorGroups'])
+        df = pd.concat([df.drop(['sensorGroups'], axis=1), sensors_df], axis=1)
+
+        # Drop unnecessary metadata columns
+        df = df.drop(columns=['_rid', '_self', '_etag', '_attachments', '_ts'], errors='ignore')
+        
         return df
     except Exception as e:
         app.logger.error(f"Error preparing time series data: {e}")
         return pd.DataFrame()
+
 
 # Dash Layout
 dash_app.layout = html.Div([
