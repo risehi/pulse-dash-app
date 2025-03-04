@@ -122,9 +122,34 @@ dash_app.layout = html.Div([
     [Input('interval-component', 'n_intervals')]
 )
 def update_graphs(n_intervals):
+    # Log interval updates
+    app.logger.debug(f"Interval count: {n_intervals}")
+
+    # Fetch and log data
     df = get_time_series_data()
+    app.logger.debug(f"DataFrame head:\n{df.head()}")
+    app.logger.debug(f"DataFrame columns: {df.columns}")
+    app.logger.debug(f"DataFrame info:\n{df.info()}")
+
     if df.empty:
+        app.logger.warning("DataFrame is empty, returning empty graphs.")
         return {}, {}, {}
+
+    # Generate figures
+    temp_fig = px.line(df, x='timestamp', y=['test_unit.temperature', 'space_nursery.temperature'],
+                       title='Temperature Over Time', labels={'value': 'Temperature (°C)'})
+    humid_fig = px.line(df, x='timestamp', y=['test_unit.humidity', 'space_nursery.humidity'],
+                        title='Humidity Over Time', labels={'value': 'Humidity (%)'})
+    lux_fig = px.line(df, x='timestamp', y='space_nursery.lux',
+                      title='Lux Over Time', labels={'value': 'Lux'})
+
+    # Log figures
+    app.logger.debug(f"Temperature figure: {temp_fig}")
+    app.logger.debug(f"Humidity figure: {humid_fig}")
+    app.logger.debug(f"Lux figure: {lux_fig}")
+
+    return temp_fig, humid_fig, lux_fig
+
 
     temp_fig = px.line(df, x='timestamp', y=['test_unit.temperature', 'space_nursery.temperature'],
                        title='Temperature Over Time', labels={'value': 'Temperature (°C)'})
