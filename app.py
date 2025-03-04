@@ -94,20 +94,31 @@ def get_time_series_data():
     try:
         # Fetch items from Cosmos DB
         items = list(container.read_all_items())
-        
+        app.logger.info(f"Fetched {len(items)} items from Cosmos DB")
+
         # Convert to DataFrame
         df = pd.DataFrame(items)
-        
+
+        # Validate raw data integrity
+        if df.empty:
+            app.logger.warning("Fetched data is empty!")
+            return pd.DataFrame()
+
+        app.logger.debug(f"Raw DataFrame structure: {df.columns.tolist()}")
+
         # Convert timestamp to datetime
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-        
+        app.logger.debug("Converted 'timestamp' to datetime.")
+
         # Flatten nested 'sensorGroups'
         sensors_df = pd.json_normalize(df['sensorGroups'])
         df = pd.concat([df.drop(['sensorGroups'], axis=1), sensors_df], axis=1)
+        app.logger.debug(f"Flattened 'sensorGroups' into columns: {sensors_df.columns.tolist()}")
 
         # Drop unnecessary metadata columns
         df = df.drop(columns=['_rid', '_self', '_etag', '_attachments', '_ts'], errors='ignore')
-        
+        app.logger.debug("Dropped unnecessary metadata columns.")
+
         return df
     except Exception as e:
         app.logger.error(f"Error preparing time series data: {e}")
@@ -132,40 +143,29 @@ dash_app.layout = html.Div([
 )
 def update_graphs(n_intervals):
     # Log interval updates
-    app.logger.debug(f"Interval count: {n_intervals}")
+    app.logger.info(f"Interval triggered (count: {n_intervals})")
 
-    # Fetch and log data
+    # Fetch and validate data
     df = get_time_series_data()
-    app.logger.debug(f"DataFrame head:\n{df.head()}")
-    app.logger.debug(f"DataFrame columns: {df.columns}")
-    app.logger.debug(f"DataFrame info:\n{df.info()}")
-
     if df.empty:
-        app.logger.warning("DataFrame is empty, returning empty graphs.")
+        app.logger.warning("DataFrame is empty, no data to graph.")
         return {}, {}, {}
 
-    # Generate figures
+    # Spot-check temperature ranges for anomalies
+    app.logger.debug(f"Temperature stats:\n{df[['test_unit.temperature', 'space_nursery.temperature']].describe()}")
+
+    # Generate figures and log key info
     temp_fig = px.line(df, x='timestamp', y=['test_unit.temperature', 'space_nursery.temperature'],
                        title='Temperature Over Time', labels={'value': 'Temperature (°C)'})
+    app.logger.info("Generated temperature figure.")
+
     humid_fig = px.line(df, x='timestamp', y=['test_unit.humidity', 'space_nursery.humidity'],
                         title='Humidity Over Time', labels={'value': 'Humidity (%)'})
+    app.logger.info("Generated humidity figure.")
+
     lux_fig = px.line(df, x='timestamp', y='space_nursery.lux',
                       title='Lux Over Time', labels={'value': 'Lux'})
-
-    # Log figures
-    app.logger.debug(f"Temperature figure: {temp_fig}")
-    app.logger.debug(f"Humidity figure: {humid_fig}")
-    app.logger.debug(f"Lux figure: {lux_fig}")
-
-    return temp_fig, humid_fig, lux_fig
-
-
-    temp_fig = px.line(df, x='timestamp', y=['test_unit.temperature', 'space_nursery.temperature'],
-                       title='Temperature Over Time', labels={'value': 'Temperature (°C)'})
-    humid_fig = px.line(df, x='timestamp', y=['test_unit.humidity', 'space_nursery.humidity'],
-                        title='Humidity Over Time', labels={'value': 'Humidity (%)'})
-    lux_fig = px.line(df, x='timestamp', y='space_nursery.lux',
-                      title='Lux Over Time', labels={'value': 'Lux'})
+    app.logger.info("Generated lux figure.")
 
     return temp_fig, humid_fig, lux_fig
 
