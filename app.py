@@ -7,6 +7,7 @@ import plotly.express as px
 import pandas as pd
 from dash.dependencies import Input, Output
 
+# Set up Flask and Dash
 app = Flask(__name__)
 dash_app = Dash(__name__, server=app, url_base_pathname='/dash/')
 
@@ -64,7 +65,6 @@ def add_item_batch():
         app.logger.debug(f"Raw request data: {request.data.decode('utf-8')}")
         app.logger.debug(f"Request headers: {request.headers}")
         batch = request.get_json()
-        app.logger.debug(f"Parsed batch: {batch}")
         if not isinstance(batch, list):
             app.logger.error("Invalid input data: Expected a list of items.")
             return jsonify({"error": "Input must be a list of items."}), 400
@@ -92,38 +92,33 @@ def get_items():
 # Dash Data Preparation
 def get_time_series_data():
     try:
-        # Fetch items from Cosmos DB
         items = list(container.read_all_items())
         app.logger.info(f"Fetched {len(items)} items from Cosmos DB")
 
-        # Convert to DataFrame
+        # Convert items to DataFrame
         df = pd.DataFrame(items)
 
-        # Validate raw data integrity
         if df.empty:
             app.logger.warning("Fetched data is empty!")
             return pd.DataFrame()
 
         app.logger.debug(f"Raw DataFrame structure: {df.columns.tolist()}")
 
-        # Convert timestamp to datetime
+        # Convert timestamp and drop unnecessary columns
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-        app.logger.debug("Converted 'timestamp' to datetime.")
-
-        # Flatten nested 'sensorGroups'
-        sensors_df = pd.json_normalize(df['sensorGroups'])
-        df = pd.concat([df.drop(['sensorGroups'], axis=1), sensors_df], axis=1)
-        app.logger.debug(f"Flattened 'sensorGroups' into columns: {sensors_df.columns.tolist()}")
-
-        # Drop unnecessary metadata columns
         df = df.drop(columns=['_rid', '_self', '_etag', '_attachments', '_ts'], errors='ignore')
-        app.logger.debug("Dropped unnecessary metadata columns.")
+
+        # Safely normalize and merge sensorGroups
+        if 'sensorGroups' in df.columns and not df['sensorGroups'].isnull().all():
+            sensors_df = pd.json_normalize(df['sensorGroups'])
+            df = pd.concat([df.drop(['sensorGroups'], axis=1), sensors_df], axis=1)
+        else:
+            app.logger.warning("'sensorGroups' column is missing or empty!")
 
         return df
     except Exception as e:
         app.logger.error(f"Error preparing time series data: {e}")
         return pd.DataFrame()
-
 
 # Dash Layout
 dash_app.layout = html.Div([
@@ -142,30 +137,32 @@ dash_app.layout = html.Div([
     [Input('interval-component', 'n_intervals')]
 )
 def update_graphs(n_intervals):
-    # Log interval updates
     app.logger.info(f"Interval triggered (count: {n_intervals})")
 
-    # Fetch and validate data
     df = get_time_series_data()
     if df.empty:
         app.logger.warning("DataFrame is empty, no data to graph.")
         return {}, {}, {}
 
-    # Spot-check temperature ranges for anomalies
-    app.logger.debug(f"Temperature stats:\n{df[['test_unit.temperature', 'space_nursery.temperature']].describe()}")
-
-    # Generate figures and log key info
-    temp_fig = px.line(df, x='timestamp', y=['test_unit.temperature', 'space_nursery.temperature'],
-                       title='Temperature Over Time', labels={'value': 'Temperature (°C)'})
-    app.logger.info("Generated temperature figure.")
-
-    humid_fig = px.line(df, x='timestamp', y=['test_unit.humidity', 'space_nursery.humidity'],
-                        title='Humidity Over Time', labels={'value': 'Humidity (%)'})
-    app.logger.info("Generated humidity figure.")
-
-    lux_fig = px.line(df, x='timestamp', y='space_nursery.lux',
-                      title='Lux Over Time', labels={'value': 'Lux'})
-    app.logger.info("Generated lux figure.")
+    timestamps = df['timestamp'].tolist()
+    temp_fig = px.line(
+        x=timestamps,
+        y=df[['test_unit.temperature', 'space_nursery.temperature']].values.tolist(),
+        title='Temperature Over Time',
+        labels={'value': 'Temperature (°C)'}
+    )
+    humid_fig = px.line(
+        x=timestamps,
+        y=df[['test_unit.humidity', 'space_nursery.humidity']].values.tolist(),
+        title='Humidity Over Time',
+        labels={'value': 'Humidity (%)'}
+    )
+    lux_fig = px.line(
+        x=timestamps,
+        y=df['space_nursery.lux'].tolist(),
+        title='Lux Over Time',
+        labels={'value': 'Lux'}
+    )
 
     return temp_fig, humid_fig, lux_fig
 
