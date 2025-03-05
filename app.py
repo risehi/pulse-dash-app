@@ -7,7 +7,6 @@ import plotly.express as px
 import pandas as pd
 from dash.dependencies import Input, Output
 
-# Set up Flask and Dash
 app = Flask(__name__)
 dash_app = Dash(__name__, server=app, url_base_pathname='/dash/')
 
@@ -65,6 +64,7 @@ def add_item_batch():
         app.logger.debug(f"Raw request data: {request.data.decode('utf-8')}")
         app.logger.debug(f"Request headers: {request.headers}")
         batch = request.get_json()
+        app.logger.debug(f"Parsed batch: {batch}")
         if not isinstance(batch, list):
             app.logger.error("Invalid input data: Expected a list of items.")
             return jsonify({"error": "Input must be a list of items."}), 400
@@ -92,33 +92,38 @@ def get_items():
 # Dash Data Preparation
 def get_time_series_data():
     try:
+        # Fetch items from Cosmos DB
         items = list(container.read_all_items())
         app.logger.info(f"Fetched {len(items)} items from Cosmos DB")
 
-        # Convert items to DataFrame
+        # Convert to DataFrame
         df = pd.DataFrame(items)
 
+        # Validate raw data integrity
         if df.empty:
             app.logger.warning("Fetched data is empty!")
             return pd.DataFrame()
 
         app.logger.debug(f"Raw DataFrame structure: {df.columns.tolist()}")
 
-        # Convert timestamp and drop unnecessary columns
+        # Convert timestamp to datetime
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-        df = df.drop(columns=['_rid', '_self', '_etag', '_attachments', '_ts'], errors='ignore')
+        app.logger.debug("Converted 'timestamp' to datetime.")
 
-        # Safely normalize and merge sensorGroups
-        if 'sensorGroups' in df.columns and not df['sensorGroups'].isnull().all():
-            sensors_df = pd.json_normalize(df['sensorGroups'])
-            df = pd.concat([df.drop(['sensorGroups'], axis=1), sensors_df], axis=1)
-        else:
-            app.logger.warning("'sensorGroups' column is missing or empty!")
+        # Flatten nested 'sensorGroups'
+        sensors_df = pd.json_normalize(df['sensorGroups'])
+        df = pd.concat([df.drop(['sensorGroups'], axis=1), sensors_df], axis=1)
+        app.logger.debug(f"Flattened 'sensorGroups' into columns: {sensors_df.columns.tolist()}")
+
+        # Drop unnecessary metadata columns
+        df = df.drop(columns=['_rid', '_self', '_etag', '_attachments', '_ts'], errors='ignore')
+        app.logger.debug("Dropped unnecessary metadata columns.")
 
         return df
     except Exception as e:
         app.logger.error(f"Error preparing time series data: {e}")
         return pd.DataFrame()
+
 
 # Dash Layout
 dash_app.layout = html.Div([
@@ -129,7 +134,6 @@ dash_app.layout = html.Div([
     dcc.Interval(id='interval-component', interval=60*1000, n_intervals=0)  # Update every 60s
 ])
 
-# Dash Callback
 @dash_app.callback(
     [Output('temperature-graph', 'figure'),
      Output('humidity-graph', 'figure'),
@@ -138,33 +142,43 @@ dash_app.layout = html.Div([
 )
 def update_graphs(n_intervals):
     app.logger.info(f"Interval triggered (count: {n_intervals})")
-
+    
+    # Fetch data
     df = get_time_series_data()
     if df.empty:
         app.logger.warning("DataFrame is empty, no data to graph.")
         return {}, {}, {}
 
-    timestamps = df['timestamp'].tolist()
+    # Convert columns to lists
+    timestamps = df['timestamp'].tolist()  # Convert timestamp to list
+    temp_data_test_unit = df['test_unit.temperature'].tolist()  # Convert temperature column for test_unit
+    temp_data_space_nursery = df['space_nursery.temperature'].tolist()  # Convert temperature column for space_nursery
+    humid_data_test_unit = df['test_unit.humidity'].tolist()  # Convert humidity column for test_unit
+    humid_data_space_nursery = df['space_nursery.humidity'].tolist()  # Convert humidity column for space_nursery
+    lux_data = df['space_nursery.lux'].tolist()  # Convert lux column
+
+    # Create figures using the explicitly converted lists
     temp_fig = px.line(
         x=timestamps,
-        y=df[['test_unit.temperature', 'space_nursery.temperature']].values.tolist(),
+        y=[temp_data_test_unit, temp_data_space_nursery],  # List of temperature data
         title='Temperature Over Time',
         labels={'value': 'Temperature (°C)'}
     )
     humid_fig = px.line(
         x=timestamps,
-        y=df[['test_unit.humidity', 'space_nursery.humidity']].values.tolist(),
+        y=[humid_data_test_unit, humid_data_space_nursery],  # List of humidity data
         title='Humidity Over Time',
         labels={'value': 'Humidity (%)'}
     )
     lux_fig = px.line(
         x=timestamps,
-        y=df['space_nursery.lux'].tolist(),
+        y=lux_data,  # Lux data as list
         title='Lux Over Time',
         labels={'value': 'Lux'}
     )
 
     return temp_fig, humid_fig, lux_fig
+
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
